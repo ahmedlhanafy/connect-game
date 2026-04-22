@@ -1,0 +1,36 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.20/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.20",
+  "version": "1.0.0",
+  "id": "daefc6b0-de8b-426a-b86b-b4ad25e97bbf",
+  "name": {
+    "short": "Connect",
+    "full": "Connect - Line Puzzle"
+  },
+  "description": {
+    "short": "Draw lines between matching dots without crossing",
+    "full": "A puzzle game where you connect matching colored dots by drawing paths that don't cross each other. Features procedural ambient music, progressive difficulty, and satisfying visual effects."
+  },
+  "developer": {
+    "name": "Ahmed Elhanafy",
+    "websiteUrl": "https://localhost:8443",
+    "privacyUrl": "https://localhost:8443",
+    "termsOfUseUrl": "https://localhost:8443"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#4DABF7",
+  "staticTabs": [
+    {
+      "entityId": "connectGame",
+      "name": "Connect",
+      "contentUrl": "https://localhost:8443/index.html",
+      "websiteUrl": "https://localhost:8443/index.html",
+      "scopes": ["personal"]
+    }
+  ],
+  "permissions": ["identity"],
+  "validDomains": ["localhost:8443"]
+}

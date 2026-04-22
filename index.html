@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Connect - Line Puzzle</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{
+  width:100%;height:100%;
+  background:#0a0a1a;
+  overflow:hidden;
+  touch-action:none;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  color:#ccc;
+}
+body{display:flex;align-items:center;justify-content:center}
+canvas{display:block;position:absolute;top:0;left:0}
+
+#start-screen{
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:#0a0a1a;z-index:50;cursor:pointer;
+  transition:opacity .6s;
+}
+#start-screen h1{
+  font-size:52px;font-weight:800;
+  background:linear-gradient(135deg,#4DABF7,#CC5DE8,#FF6B6B);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;margin-bottom:12px;
+}
+#start-screen .sub{font-size:16px;color:#666;margin-bottom:40px}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+#start-screen .tap{font-size:18px;color:#888;animation:pulse 2s ease-in-out infinite}
+
+#hud-top{
+  position:fixed;top:0;left:0;right:0;
+  display:flex;justify-content:space-between;align-items:flex-start;
+  padding:max(env(safe-area-inset-top,12px),16px) 24px 0;
+  z-index:10;pointer-events:none;
+}
+#hud-top>div{pointer-events:auto}
+.hud-level{font-size:22px;font-weight:700;color:#fff}
+.hud-diff{font-size:13px;color:#666;margin-top:2px}
+.hud-status{font-size:20px;font-weight:700;text-align:right;transition:color .3s}
+.hud-status.pending{color:#ffd43b}
+.hud-status.done{color:#51cf66}
+
+#hud-bottom{
+  position:fixed;bottom:0;left:0;right:0;
+  display:flex;justify-content:center;gap:12px;
+  padding:0 24px max(env(safe-area-inset-bottom,12px),20px);
+  z-index:10;
+}
+.btn{
+  padding:10px 24px;border:2px solid rgba(255,255,255,.15);
+  border-radius:25px;background:rgba(255,255,255,.05);
+  color:#ddd;font-size:14px;font-weight:500;cursor:pointer;
+  transition:all .15s;backdrop-filter:blur(8px);
+}
+.btn:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25)}
+.btn:active{transform:scale(.95)}
+.btn-mute{padding:6px 12px;font-size:16px;min-width:auto}
+
+#victory{
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(10,10,26,.88);z-index:20;
+  opacity:0;pointer-events:none;transition:opacity .4s;
+}
+#victory.show{opacity:1;pointer-events:auto}
+#victory h2{font-size:38px;color:#51cf66;font-weight:800;margin-bottom:8px}
+#victory .sub{font-size:16px;color:#888;margin-bottom:28px}
+#victory .btn-next{
+  padding:14px 44px;border:none;border-radius:30px;
+  background:linear-gradient(135deg,#51cf66,#40c057);
+  color:#000;font-size:18px;font-weight:700;cursor:pointer;
+  transition:transform .15s;box-shadow:0 4px 24px rgba(81,207,102,.3);
+}
+#victory .btn-next:hover{transform:scale(1.05)}
+#victory .btn-next:active{transform:scale(.97)}
+
+#error-flash{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:16px;font-weight:600;color:#ff6b6b;
+  opacity:0;transition:opacity .3s;z-index:15;pointer-events:none;
+  text-shadow:0 0 20px rgba(255,60,60,.5);
+}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="start-screen">
+  <h1>Connect</h1>
+  <div class="sub">Draw lines between matching dots without crossing</div>
+  <div class="tap">Tap to play</div>
+</div>
+
+<div id="hud-top">
+  <div>
+    <div class="hud-level" id="hud-level">Level 1</div>
+    <div class="hud-diff" id="hud-diff">Easy</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <div class="hud-status pending" id="hud-status">0 / 3</div>
+    <button class="btn btn-mute" id="btn-mute">&#9834;</button>
+  </div>
+</div>
+
+<div id="hud-bottom">
+  <button class="btn" id="btn-undo">Undo</button>
+  <button class="btn" id="btn-clear">Clear</button>
+  <button class="btn" id="btn-skip">Skip</button>
+</div>
+
+<div id="victory">
+  <h2>Solved!</h2>
+  <div class="sub" id="v-sub"></div>
+  <button class="btn-next" id="btn-next">Next Level</button>
+</div>
+
+<div id="error-flash">Lines cannot cross!</div>
+
+<script>
+
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  const elStart = document.getElementById('start-screen');
+  const elLevel = document.getElementById('hud-level');
+  const elDiff = document.getElementById('hud-diff');
+  const elStatus = document.getElementById('hud-status');
+  const elVictory = document.getElementById('victory');
+  const elVSub = document.getElementById('v-sub');
+  const elError = document.getElementById('error-flash');
+  const elMute = document.getElementById('btn-mute');
+
+  const COLORS = [
+    '#FF6B6B','#4DABF7','#51CF66','#FFD43B',
+    '#CC5DE8','#22B8CF','#FF922B','#F06595',
+    '#A9E34B','#845EF7','#20C997','#FFA94D'
+  ];
+
+  // ═══════════════════════════════════════
+  //  AUDIO SYSTEM
+  // ═══════════════════════════════════════
+  let audioCtx = null;
+  let musicMaster = null;
+  let muted = false;
+  let audioStarted = false;
+  function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    startMusic();
+    audioStarted = true;
+  }
+
+  // ── Procedural SFX via Web Audio ──
+  function playTone(freq, dur, type, vol) {
+    if (muted || !audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+  }
+
+  function sfxSelect() {
+    playTone(660, 0.08, 'sine', 0.1);
+    playTone(880, 0.06, 'sine', 0.06);
+  }
+
+  function sfxConnect() {
+    playTone(523, 0.12, 'sine', 0.15);
+    setTimeout(() => playTone(659, 0.12, 'sine', 0.15), 60);
+    setTimeout(() => playTone(784, 0.18, 'sine', 0.15), 120);
+  }
+
+  function sfxReject() {
+    playTone(250, 0.15, 'sawtooth', 0.08);
+    setTimeout(() => playTone(200, 0.2, 'sawtooth', 0.08), 80);
+  }
+
+  function sfxVictory() {
+    const ns = [523, 659, 784, 1047];
+    ns.forEach((n, i) => setTimeout(() => playTone(n, 0.35, 'sine', 0.12), i * 100));
+  }
+
+  function sfxBoundary() {
+    playTone(120, 0.1, 'triangle', 0.12);
+    playTone(90, 0.08, 'sine', 0.08);
+  }
+
+  function sfxCrossing() {
+    playTone(180, 0.12, 'square', 0.06);
+    setTimeout(() => playTone(140, 0.15, 'square', 0.05), 50);
+  }
+
+  // ── Ambient Music (procedural) ──
+  function startMusic() {
+    const ac = audioCtx;
+    musicMaster = ac.createGain();
+    musicMaster.gain.value = 0.18;
+    musicMaster.connect(ac.destination);
+
+    // Delay for spaciousness
+    const delay = ac.createDelay();
+    delay.delayTime.value = 0.45;
+    const fb = ac.createGain(); fb.gain.value = 0.25;
+    const delGain = ac.createGain(); delGain.gain.value = 0.15;
+    delay.connect(fb).connect(delay);
+    delay.connect(delGain).connect(musicMaster);
+
+    // Sub drone C2
+    const d1 = ac.createOscillator(); d1.type = 'sine'; d1.frequency.value = 65.4;
+    const dg1 = ac.createGain(); dg1.gain.value = 0.12;
+    d1.connect(dg1).connect(musicMaster); d1.start();
+
+    // Fifth G2
+    const d2 = ac.createOscillator(); d2.type = 'sine'; d2.frequency.value = 98;
+    const dg2 = ac.createGain(); dg2.gain.value = 0.06;
+    d2.connect(dg2).connect(musicMaster); d2.start();
+
+    // Warm pad C3+E3+G3
+    [130.8, 164.8, 196].forEach(f => {
+      const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+      const g = ac.createGain(); g.gain.value = 0.025;
+      // Slow volume swell via LFO
+      const lfo = ac.createOscillator(); lfo.type = 'sine';
+      lfo.frequency.value = 0.08 + Math.random() * 0.04;
+      const lfoG = ac.createGain(); lfoG.gain.value = 0.015;
+      lfo.connect(lfoG).connect(g.gain);
+      lfo.start();
+      o.connect(g).connect(musicMaster); o.start();
+    });
+
+    // Filtered noise
+    const bufSize = ac.sampleRate * 2;
+    const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) ch[i] = Math.random() * 2 - 1;
+    const noise = ac.createBufferSource(); noise.buffer = buf; noise.loop = true;
+    const nf = ac.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 500; nf.Q.value = 1.5;
+    const ng = ac.createGain(); ng.gain.value = 0.012;
+    const nlfo = ac.createOscillator(); nlfo.type = 'sine'; nlfo.frequency.value = 0.03;
+    const nlfoG = ac.createGain(); nlfoG.gain.value = 350;
+    nlfo.connect(nlfoG).connect(nf.frequency); nlfo.start();
+    noise.connect(nf).connect(ng).connect(musicMaster); noise.start();
+
+    // Random pentatonic ambient notes
+    const scale = [261.6, 293.7, 329.6, 392, 440, 523.3];
+    function ambNote() {
+      if (!muted && audioCtx) {
+        const f = scale[Math.floor(Math.random() * scale.length)] * (Math.random() > 0.6 ? 0.5 : 1);
+        const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+        const g = ac.createGain();
+        const t = ac.currentTime;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.035, t + 0.4);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 3.5);
+        o.connect(g).connect(delay);
+        o.connect(g).connect(musicMaster);
+        o.start(t); o.stop(t + 3.5);
+      }
+      setTimeout(ambNote, 2200 + Math.random() * 4500);
+    }
+    setTimeout(ambNote, 800);
+  }
+
+  function toggleMute() {
+    muted = !muted;
+    elMute.textContent = muted ? '\u266D' : '\u266A';
+    if (musicMaster) musicMaster.gain.value = muted ? 0 : 0.18;
+  }
+
+  // ═══════════════════════════════════════
+  //  BACKGROUND EFFECTS
+  // ═══════════════════════════════════════
+  const bgDots = [];
+  const shootingStars = [];
+
+  function initBg() {
+    bgDots.length = 0;
+    for (let i = 0; i < 70; i++) {
+      bgDots.push({
+        x: Math.random() * W, y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25,
+        size: 0.8 + Math.random() * 1.8,
+        alpha: 0.08 + Math.random() * 0.18,
+        twinkle: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  function updateBg() {
+    for (const p of bgDots) {
+      p.x += p.vx; p.y += p.vy;
+      p.twinkle += 0.015;
+      if (p.x < -10) p.x = W + 10;
+      if (p.x > W + 10) p.x = -10;
+      if (p.y < -10) p.y = H + 10;
+      if (p.y > H + 10) p.y = -10;
+    }
+    // Shooting stars
+    if (Math.random() < 0.003) {
+      shootingStars.push({
+        x: Math.random() * W, y: -10,
+        vx: -1.5 - Math.random() * 3, vy: 3 + Math.random() * 5,
+        life: 1, len: 25 + Math.random() * 50
+      });
+    }
+    for (let i = shootingStars.length - 1; i >= 0; i--) {
+      const s = shootingStars[i];
+      s.x += s.vx; s.y += s.vy;
+      s.life -= 0.015;
+      if (s.life <= 0 || s.y > H + 50) shootingStars.splice(i, 1);
+    }
+  }
+
+  function drawBg(t) {
+    const time = t * 0.0002;
+
+    // Aurora gradients
+    const ax1 = cx + Math.sin(time) * W * 0.3;
+    const ay1 = cy + Math.cos(time * 0.7) * H * 0.2;
+    const g1 = ctx.createRadialGradient(ax1, ay1, 0, ax1, ay1, circleR * 1.6);
+    g1.addColorStop(0, 'rgba(60,30,120,0.07)');
+    g1.addColorStop(1, 'rgba(60,30,120,0)');
+    ctx.fillStyle = g1; ctx.fillRect(0, 0, W, H);
+
+    const ax2 = cx + Math.cos(time * 0.6 + 2) * W * 0.25;
+    const ay2 = cy + Math.sin(time * 0.5 + 1) * H * 0.25;
+    const g2 = ctx.createRadialGradient(ax2, ay2, 0, ax2, ay2, circleR * 1.3);
+    g2.addColorStop(0, 'rgba(20,80,110,0.06)');
+    g2.addColorStop(1, 'rgba(20,80,110,0)');
+    ctx.fillStyle = g2; ctx.fillRect(0, 0, W, H);
+
+    const ax3 = cx + Math.sin(time * 0.4 + 4) * W * 0.2;
+    const ay3 = cy + Math.cos(time * 0.3 + 3) * H * 0.3;
+    const g3 = ctx.createRadialGradient(ax3, ay3, 0, ax3, ay3, circleR * 1.1);
+    g3.addColorStop(0, 'rgba(100,30,80,0.04)');
+    g3.addColorStop(1, 'rgba(100,30,80,0)');
+    ctx.fillStyle = g3; ctx.fillRect(0, 0, W, H);
+
+    // Constellation lines
+    for (let i = 0; i < bgDots.length; i++) {
+      for (let j = i + 1; j < bgDots.length; j++) {
+        const a = bgDots[i], b = bgDots[j];
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < 110) {
+          const alpha = 0.07 * (1 - d / 110);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+          ctx.strokeStyle = `rgba(120,120,220,${alpha})`;
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Background particles
+    for (const p of bgDots) {
+      const flicker = 0.7 + 0.3 * Math.sin(p.twinkle);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(180,180,255,${p.alpha * flicker})`;
+      ctx.fill();
+    }
+
+    // Shooting stars
+    for (const s of shootingStars) {
+      const tail = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+      const tx = s.x - (s.vx / tail) * s.len * s.life;
+      const ty = s.y - (s.vy / tail) * s.len * s.life;
+      const sg = ctx.createLinearGradient(tx, ty, s.x, s.y);
+      sg.addColorStop(0, `rgba(255,255,255,0)`);
+      sg.addColorStop(1, `rgba(255,255,255,${0.5 * s.life})`);
+      ctx.beginPath();
+      ctx.moveTo(tx, ty); ctx.lineTo(s.x, s.y);
+      ctx.strokeStyle = sg; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+  }
+
+  // ═══════════════════════════════════════
+  //  GAME STATE
+  // ═══════════════════════════════════════
+  let W, H, cx, cy, circleR, dotR;
+  let level = 1;
+  let dots = [];
+  let pairMap = {};
+  let numPairs = 3;
+  let connections = [];
+  let drawing = null;
+  let solved = false;
+  let solveTime = 0;
+  let particles = [];
+  let animFrame = 0;
+  let rejectAnim = null;
+  let gameStarted = false;
+
+  const MIN_PT_DIST_SQ = 36;
+  const SNAP_R_MULT = 2.0;
+
+  // ═══════════════════════════════════════
+  //  SIZING
+  // ═══════════════════════════════════════
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    cx = W / 2;
+    cy = H / 2;
+    circleR = Math.min(W, H) * 0.38;
+    dotR = Math.max(16, Math.min(26, circleR * 0.07));
+  }
+
+  // ═══════════════════════════════════════
+  //  LEVEL GENERATION
+  // ═══════════════════════════════════════
+  function getNumPairs(lvl) {
+    if (lvl <= 2) return 3;
+    if (lvl <= 5) return 4;
+    if (lvl <= 8) return 5;
+    if (lvl <= 12) return 6;
+    if (lvl <= 16) return 7;
+    return Math.min(8 + Math.floor((lvl - 17) / 3), 12);
+  }
+
+  function getDiffLabel(lvl) {
+    const n = getNumPairs(lvl);
+    if (n <= 3) return 'Easy';
+    if (n <= 4) return 'Medium';
+    if (n <= 5) return 'Hard';
+    if (n <= 6) return 'Expert';
+    return 'Master';
+  }
+
+  function dist(a, b) {
+    return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  }
+
+  // How close to the boundary dots are placed, by level:
+  // Early levels: 70-100% radius (some interior dots still)
+  // Later levels: 85-100% (nearly all on the rim)
+  function getDotRadiusRange(lvl) {
+    const minR = Math.max(0.55, 0.85 - Math.max(0, 6 - lvl) * 0.05); // ramps from 0.55 → 0.85
+    return { minR, maxR: 0.92 };
+  }
+
+  function randomOnRim(lvl) {
+    const { minR, maxR } = getDotRadiusRange(lvl);
+    const a = Math.random() * Math.PI * 2;
+    const r = (minR + Math.random() * (maxR - minR)) * circleR;
+    return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+  }
+
+  function placeDots(n, lvl) {
+    const pts = []; let att = 0;
+    const minD = dotR * 3.2;
+    while (pts.length < n && att < 3000) {
+      const p = randomOnRim(lvl);
+      if (pts.every(q => dist(p, q) >= minD)) pts.push(p);
+      att++;
+    }
+    // Fallback: evenly spaced on the rim
+    while (pts.length < n) {
+      const a = (pts.length / n) * Math.PI * 2;
+      pts.push({ x: cx + Math.cos(a) * circleR * 0.88, y: cy + Math.sin(a) * circleR * 0.88 });
+    }
+    return pts;
+  }
+
+  function cross2d(o, a, b) {
+    return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  }
+
+  function segsIntersect(a, b, c, d) {
+    const d1 = cross2d(c, d, a), d2 = cross2d(c, d, b);
+    const d3 = cross2d(a, b, c), d4 = cross2d(a, b, d);
+    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+        ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+    return false;
+  }
+
+  function hasStraightCrossings(dotsList, pm) {
+    const cis = Object.keys(pm).map(Number);
+    for (let i = 0; i < cis.length; i++) {
+      for (let j = i + 1; j < cis.length; j++) {
+        const [a1, a2] = pm[cis[i]].map(id => dotsList[id]);
+        const [b1, b2] = pm[cis[j]].map(id => dotsList[id]);
+        if (segsIntersect(a1, a2, b1, b2)) return true;
+      }
+    }
+    return false;
+  }
+
+  function initLevel(lvl) {
+    numPairs = getNumPairs(lvl);
+    const nd = numPairs * 2;
+    let att = 0;
+    do {
+      const positions = placeDots(nd, lvl);
+      dots = positions.map((p, i) => ({
+        id: i, colorIdx: Math.floor(i / 2),
+        x: p.x, y: p.y,
+        rx: (p.x - cx) / circleR, ry: (p.y - cy) / circleR,
+        connected: false
+      }));
+      const sh = dots.slice().sort(() => Math.random() - 0.5);
+      sh.forEach((d, i) => { d.id = i; });
+      dots = sh;
+      pairMap = {};
+      for (const d of dots) {
+        if (!pairMap[d.colorIdx]) pairMap[d.colorIdx] = [];
+        pairMap[d.colorIdx].push(d.id);
+      }
+      att++;
+    } while (!hasStraightCrossings(dots, pairMap) && att < 80);
+
+    connections = [];
+    drawing = null;
+    solved = false; solveTime = 0;
+    particles = [];
+    rejectAnim = null;
+    updateHUD();
+  }
+
+  // ═══════════════════════════════════════
+  //  PATH & COLLISION
+  // ═══════════════════════════════════════
+  let circleShake = 0;       // shake intensity (decays to 0)
+  let lastBoundaryHit = 0;   // timestamp to throttle sfx
+
+  function clampToCircle(px, py) {
+    const dx = px - cx, dy = py - cy;
+    const d2 = dx * dx + dy * dy;
+    const maxR = circleR - 2;
+    if (d2 <= maxR * maxR) return { x: px, y: py, hitBoundary: false };
+    const d = Math.sqrt(d2);
+    return { x: cx + (dx / d) * maxR, y: cy + (dy / d) * maxR, hitBoundary: true };
+  }
+
+  function pathCrossesExisting(path) {
+    for (const conn of connections) {
+      for (let i = 0; i < path.length - 1; i++) {
+        for (let j = 0; j < conn.path.length - 1; j++) {
+          if (segsIntersect(path[i], path[i + 1], conn.path[j], conn.path[j + 1]))
+            return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // ═══════════════════════════════════════
+  //  HUD
+  // ═══════════════════════════════════════
+  function updateHUD() {
+    elLevel.textContent = `Level ${level}`;
+    elDiff.textContent = getDiffLabel(level);
+    elStatus.textContent = `${connections.length} / ${numPairs}`;
+    elStatus.className = 'hud-status ' + (connections.length < numPairs ? 'pending' : 'done');
+  }
+
+  function flashError() {
+    elError.style.opacity = '1';
+    setTimeout(() => { elError.style.opacity = '0'; }, 1200);
+  }
+
+  // ═══════════════════════════════════════
+  //  INPUT
+  // ═══════════════════════════════════════
+  function ptrPos(e) {
+    const t = e.touches ? e.touches[0] || e.changedTouches[0] : e;
+    return { x: t.clientX, y: t.clientY };
+  }
+
+  function findDot(x, y, filterFn) {
+    let best = null, bestD = (dotR + 20) * (dotR + 20);
+    for (const d of dots) {
+      if (filterFn && !filterFn(d)) continue;
+      const dx = x - d.x, dy = y - d.y, dd = dx * dx + dy * dy;
+      if (dd < bestD) { bestD = dd; best = d; }
+    }
+    return best;
+  }
+
+  function getMatch(dot) {
+    const pair = pairMap[dot.colorIdx];
+    const oid = pair[0] === dot.id ? pair[1] : pair[0];
+    return dots.find(d => d.id === oid);
+  }
+
+  function onDown(e) {
+    e.preventDefault();
+    if (solved || !gameStarted) return;
+    const p = ptrPos(e);
+    const dot = findDot(p.x, p.y, d => !d.connected);
+    if (!dot) return;
+    sfxSelect();
+    drawing = {
+      fromDot: dot,
+      path: [{ x: dot.x, y: dot.y }],
+      crossing: false
+    };
+  }
+
+  function onMove(e) {
+    e.preventDefault();
+    if (!drawing) return;
+    const p = ptrPos(e);
+    const clamped = clampToCircle(p.x, p.y);
+    const last = drawing.path[drawing.path.length - 1];
+    const dx = clamped.x - last.x, dy = clamped.y - last.y;
+    if (dx * dx + dy * dy >= MIN_PT_DIST_SQ) {
+      drawing.path.push(clamped);
+    }
+
+    // Boundary hit → vibrate circle + sfx
+    if (clamped.hitBoundary) {
+      const now = performance.now();
+      if (now - lastBoundaryHit > 150) {
+        circleShake = 6;
+        sfxBoundary();
+        lastBoundaryHit = now;
+        // Haptic feedback on mobile if available
+        if (navigator.vibrate) navigator.vibrate(30);
+      }
+    }
+
+    // Crossing detection + sfx
+    const wasCrossing = drawing.crossing;
+    drawing.crossing = pathCrossesExisting(drawing.path);
+    if (drawing.crossing && !wasCrossing) {
+      sfxCrossing();
+    }
+  }
+
+  function onUp(e) {
+    e.preventDefault();
+    if (!drawing) return;
+    const p = ptrPos(e);
+    const target = getMatch(drawing.fromDot);
+    const snapR = dotR * SNAP_R_MULT;
+    const dx = p.x - target.x, dy = p.y - target.y;
+
+    if (dx * dx + dy * dy < snapR * snapR) {
+      drawing.path.push({ x: target.x, y: target.y });
+
+      if (pathCrossesExisting(drawing.path)) {
+        rejectAnim = { path: drawing.path.slice(), color: COLORS[drawing.fromDot.colorIdx], time: performance.now() };
+        flashError();
+        sfxReject();
+      } else {
+        drawing.fromDot.connected = true;
+        target.connected = true;
+        connections.push({
+          colorIdx: drawing.fromDot.colorIdx,
+          path: drawing.path.slice(),
+          ids: [drawing.fromDot.id, target.id]
+        });
+        sfxConnect();
+        spawnPathParticles(drawing.path, COLORS[drawing.fromDot.colorIdx]);
+        updateHUD();
+
+        if (connections.length === numPairs) {
+          solved = true; solveTime = performance.now();
+          sfxVictory();
+          spawnVictoryParticles();
+          setTimeout(() => {
+            elVSub.textContent = `Level ${level} completed`;
+            elVictory.classList.add('show');
+          }, 1400);
+        }
+      }
+    }
+    drawing = null;
+  }
+
+  canvas.addEventListener('mousedown', onDown);
+  canvas.addEventListener('mousemove', onMove);
+  canvas.addEventListener('mouseup', onUp);
+  canvas.addEventListener('mouseleave', () => { drawing = null; });
+  canvas.addEventListener('touchstart', onDown, { passive: false });
+  canvas.addEventListener('touchmove', onMove, { passive: false });
+  canvas.addEventListener('touchend', onUp, { passive: false });
+
+  // ═══════════════════════════════════════
+  //  BUTTONS
+  // ═══════════════════════════════════════
+  document.getElementById('btn-undo').addEventListener('click', () => {
+    if (solved || connections.length === 0) return;
+    const last = connections.pop();
+    last.ids.forEach(id => { dots.find(d => d.id === id).connected = false; });
+    updateHUD();
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    if (solved) return;
+    connections = [];
+    dots.forEach(d => { d.connected = false; });
+    updateHUD();
+  });
+
+  document.getElementById('btn-skip').addEventListener('click', () => {
+    level++; elVictory.classList.remove('show'); initLevel(level);
+  });
+
+  document.getElementById('btn-next').addEventListener('click', () => {
+    level++; elVictory.classList.remove('show'); initLevel(level);
+  });
+
+  elMute.addEventListener('click', toggleMute);
+
+  window.addEventListener('keydown', e => {
+    if (e.key === 'z' && (e.metaKey || e.ctrlKey)) document.getElementById('btn-undo').click();
+    if ((e.key === 'n' || e.key === ' ') && solved) document.getElementById('btn-next').click();
+  });
+
+  // ═══════════════════════════════════════
+  //  PARTICLES
+  // ═══════════════════════════════════════
+  function spawnPathParticles(path, color) {
+    for (let i = 0; i < path.length; i += 3) {
+      const pt = path[Math.min(i, path.length - 1)];
+      for (let j = 0; j < 3; j++) {
+        const a = Math.random() * Math.PI * 2;
+        particles.push({
+          x: pt.x, y: pt.y,
+          vx: Math.cos(a) * (1.5 + Math.random() * 2.5),
+          vy: Math.sin(a) * (1.5 + Math.random() * 2.5),
+          color, life: 0.6 + Math.random() * 0.5,
+          size: 2 + Math.random() * 3.5
+        });
+      }
+    }
+  }
+
+  function spawnVictoryParticles() {
+    for (const dot of dots) {
+      for (let i = 0; i < 20; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const spd = 2 + Math.random() * 7;
+        particles.push({
+          x: dot.x, y: dot.y,
+          vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+          color: COLORS[dot.colorIdx],
+          life: 1, size: 3 + Math.random() * 5
+        });
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════
+  //  SMOOTH PATH DRAWING
+  // ═══════════════════════════════════════
+  function strokeSmooth(pts) {
+    if (pts.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 2) {
+      ctx.lineTo(pts[1].x, pts[1].y);
+    } else {
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2;
+        const my = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+      }
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    }
+    ctx.stroke();
+  }
+
+  // ═══════════════════════════════════════
+  //  RENDER
+  // ═══════════════════════════════════════
+  function render(t) {
+    animFrame++;
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = '#0a0a1a';
+    ctx.fillRect(0, 0, W, H);
+
+    updateBg();
+    drawBg(t || 0);
+
+    // Decay circle shake
+    if (circleShake > 0) circleShake *= 0.85;
+    if (circleShake < 0.3) circleShake = 0;
+    const shakeX = circleShake ? (Math.random() - 0.5) * circleShake * 2 : 0;
+    const shakeY = circleShake ? (Math.random() - 0.5) * circleShake * 2 : 0;
+    const cxDraw = cx + shakeX;
+    const cyDraw = cy + shakeY;
+
+    // Circle boundary (with shake)
+    ctx.beginPath();
+    ctx.arc(cxDraw, cyDraw, circleR, 0, Math.PI * 2);
+    const boundaryAlpha = circleShake > 0 ? 0.2 : 0.08;
+    ctx.strokeStyle = circleShake > 0
+      ? `rgba(255,100,100,${boundaryAlpha})`
+      : `rgba(255,255,255,${boundaryAlpha})`;
+    ctx.lineWidth = circleShake > 0 ? 3 : 2;
+    ctx.stroke();
+
+    // Circle inner glow
+    const cg = ctx.createRadialGradient(cxDraw, cyDraw, circleR * 0.95, cxDraw, cyDraw, circleR);
+    cg.addColorStop(0, 'rgba(80,80,160,0)');
+    cg.addColorStop(1, circleShake > 0 ? 'rgba(160,60,60,0.06)' : 'rgba(80,80,160,0.04)');
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.arc(cxDraw, cyDraw, circleR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // ── Confirmed connections ──
+    for (const conn of connections) {
+      const col = COLORS[conn.colorIdx];
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 6.5;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = solved ? 18 : 10;
+      ctx.globalAlpha = solved ? 0.95 : 0.75;
+      strokeSmooth(conn.path);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+
+    // ── Current drawing path ──
+    if (drawing && drawing.path.length >= 2) {
+      const col = COLORS[drawing.fromDot.colorIdx];
+      ctx.strokeStyle = drawing.crossing ? '#ff4444' : col;
+      ctx.lineWidth = 5.5;
+      ctx.shadowColor = drawing.crossing ? '#ff4444' : col;
+      ctx.shadowBlur = 12;
+      ctx.globalAlpha = 0.9;
+      strokeSmooth(drawing.path);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+
+    // ── Reject animation ──
+    if (rejectAnim) {
+      const el = performance.now() - rejectAnim.time;
+      if (el < 600) {
+        ctx.strokeStyle = '#ff4444';
+        ctx.lineWidth = 5.5;
+        ctx.globalAlpha = (1 - el / 600) * 0.8;
+        strokeSmooth(rejectAnim.path);
+        ctx.globalAlpha = 1;
+      } else { rejectAnim = null; }
+    }
+
+    // ── Dots ──
+    const src = drawing ? drawing.fromDot : null;
+    const tgt = drawing ? getMatch(drawing.fromDot) : null;
+
+    for (const dot of dots) {
+      const col = COLORS[dot.colorIdx];
+      const isSrc = src === dot;
+      const isTgt = tgt === dot;
+      const dimmed = drawing && !isSrc && !isTgt;
+
+      let r = dotR;
+      if (isSrc) r = dotR * 1.25;
+      if (isTgt) r = dotR * (1 + 0.1 * Math.sin(animFrame * 0.1));
+      if (dot.connected && !isSrc && !isTgt) r = dotR * 0.85;
+      if (solved) r = dotR * (1 + 0.06 * Math.sin(animFrame * 0.08 + dot.id));
+
+      const alpha = dimmed ? 0.3 : dot.connected && !drawing ? 0.6 : 1;
+      ctx.globalAlpha = alpha;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = isSrc ? 30 : isTgt ? 24 : 10;
+
+      // 3D-ish gradient
+      const grad = ctx.createRadialGradient(dot.x - r * 0.3, dot.y - r * 0.3, r * 0.1, dot.x, dot.y, r);
+      grad.addColorStop(0, '#fff');
+      grad.addColorStop(0.4, col);
+      grad.addColorStop(1, col);
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.3})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Target pulsing ring
+      if (isTgt) {
+        const rr = r + 8 + 4 * Math.sin(animFrame * 0.12);
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, rr, 0, Math.PI * 2);
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 2.5;
+        ctx.globalAlpha = 0.4 + 0.35 * Math.sin(animFrame * 0.12);
+        ctx.stroke();
+      }
+
+      // Connected check
+      if (dot.connected && !drawing) {
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(dot.x - r * 0.3, dot.y);
+        ctx.lineTo(dot.x - r * 0.05, dot.y + r * 0.25);
+        ctx.lineTo(dot.x + r * 0.35, dot.y - r * 0.2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.shadowBlur = 0;
+
+    // ── Game particles ──
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx; p.y += p.vy;
+      p.vy += 0.05; p.vx *= 0.99;
+      p.life -= 0.014;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      ctx.globalAlpha = p.life * p.life;
+      ctx.shadowColor = p.color; ctx.shadowBlur = 5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+
+    requestAnimationFrame(render);
+  }
+
+  // ═══════════════════════════════════════
+  //  INIT & START
+  // ═══════════════════════════════════════
+  function startGame() {
+    if (gameStarted) return;
+    gameStarted = true;
+    elStart.style.opacity = '0';
+    elStart.style.pointerEvents = 'none';
+    setTimeout(() => { elStart.style.display = 'none'; }, 600);
+
+    initAudio();
+    initLevel(level);
+  }
+
+  // Start screen handlers
+  elStart.addEventListener('click', startGame);
+  elStart.addEventListener('touchend', e => { e.preventDefault(); startGame(); });
+
+  resize();
+  initBg();
+  window.addEventListener('resize', () => {
+    resize();
+    initBg();
+    if (gameStarted) initLevel(level);
+  });
+
+  // Start render loop (shows background on start screen too)
+  // Pre-init level so dots exist for render, but hidden behind start screen
+  initLevel(level);
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
