@@ -13,9 +13,9 @@
   },
   "developer": {
     "name": "Ahmed Elhanafy",
-    "websiteUrl": "https://localhost:8443",
-    "privacyUrl": "https://localhost:8443",
-    "termsOfUseUrl": "https://localhost:8443"
+    "websiteUrl": "https://ahmedlhanafy.github.io/connect-game",
+    "privacyUrl": "https://ahmedlhanafy.github.io/connect-game",
+    "termsOfUseUrl": "https://ahmedlhanafy.github.io/connect-game"
   },
   "icons": {
     "color": "color.png",
@@ -26,11 +26,11 @@
     {
       "entityId": "connectGame",
       "name": "Connect",
-      "contentUrl": "https://localhost:8443/index.html",
-      "websiteUrl": "https://localhost:8443/index.html",
+      "contentUrl": "https://ahmedlhanafy.github.io/connect-game/teams-app/index.html",
+      "websiteUrl": "https://ahmedlhanafy.github.io/connect-game/teams-app/index.html",
       "scopes": ["personal"]
     }
   ],
   "permissions": ["identity"],
-  "validDomains": ["localhost:8443"]
+  "validDomains": ["ahmedlhanafy.github.io"]
 }
