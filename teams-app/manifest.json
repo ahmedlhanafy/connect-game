@@ -31,6 +31,14 @@
       "scopes": ["personal"]
     }
   ],
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://ahmedlhanafy.github.io/connect-game/teams-app/config.html",
+      "canUpdateConfiguration": false,
+      "scopes": ["team", "groupChat"],
+      "context": ["channelTab", "privateChatTab", "meetingChatTab", "meetingDetailsTab", "meetingSidePanel", "meetingStage"]
+    }
+  ],
   "permissions": ["identity"],
   "validDomains": ["ahmedlhanafy.github.io"]
 }
