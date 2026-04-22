@@ -40,5 +40,15 @@
     }
   ],
   "permissions": ["identity"],
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "MeetingStage.Write.Chat",
+          "type": "Delegated"
+        }
+      ]
+    }
+  },
   "validDomains": ["ahmedlhanafy.github.io"]
 }
